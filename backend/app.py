@@ -46,7 +46,7 @@ import uvicorn
 import os
 
 # get path to repo root (parent of backend/) for render
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # backend/
 DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'meds.db')}"
 
 SECRET_KEY = "change-me-in-production"

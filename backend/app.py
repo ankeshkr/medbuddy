@@ -303,3 +303,10 @@ def mark_taken(med_id: int, scheduled_for: Optional[datetime] = None, user: User
 @app.get("/me")
 def get_me(user: User = Depends(get_user_from_token)):
     return {"email": user.email}
+
+@app.get("/debug_time")
+def debug_time():
+    return {
+        "server_datetime": datetime.now(),  # local server time
+        "utc_datetime": datetime.utcnow()   # UTC time
+    }

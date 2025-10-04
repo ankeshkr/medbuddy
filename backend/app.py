@@ -1,0 +1,299 @@
+"""
+MedBuddy MVP-1
+================
+
+This single file contains two sections (backend and a simple prototype mobile/desktop client).
+
+Sections:
+  - ### Backend: FastAPI app (file: backend/app.py)
+  - ### Mobile: Kivy prototype (file: mobile/main.py)
+
+How to use (quickstart):
+1. Backend (development, local):
+   - Create and activate a Python venv: `python -m venv venv && source venv/bin/activate` (Linux/macOS) or `venv\Scripts\activate` (Windows)
+   - Install deps: `pip install fastapi uvicorn sqlmodel passlib[bcrypt] python-jose[cryptography]`
+   - Save the backend section below into `backend/app.py` and run: `python backend/app.py` or `uvicorn backend.app:app --reload`
+   - Backend runs on http://127.0.0.1:8000 by default.
+
+2. Mobile prototype (desktop test or Android packaging later):
+   - Install deps for prototype: `pip install kivy requests plyer`
+   - Save the mobile section below into `mobile/main.py` and run: `python mobile/main.py`
+   - The prototype logs in (or registers) using the email/password you enter and polls `/reminders` every 60s, showing local notifications when reminders are returned.
+
+Notes / MVP decisions for this phase:
+  - Authentication: simple JWT; token expiry configurable. Passwords hashed with bcrypt.
+  - Scheduling: Server returns reminders for the current day within a configurable window (default 15 minutes before, 5 after). No push-notifications yet; the app polls `/reminders`.
+  - Storage: SQLite for MVP. Later switch to PostgreSQL when scaling.
+  - Notification delivery: local notifications via plyer (when running on device). Later we will add FCM/APNs push notifications.
+
+---
+
+### backend/app.py
+
+"""
+# backend/app.py
+from typing import Optional, List
+from sqlmodel import SQLModel, Field, create_engine, Session, select
+from datetime import date, time, datetime, timedelta
+from fastapi import FastAPI, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+import uvicorn
+
+# --- CONFIG ---
+DATABASE_URL = "sqlite:///./meds.db"
+SECRET_KEY = "change-me-in-production"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+
+engine = create_engine(DATABASE_URL, echo=False)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# --- MODELS ---
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True, nullable=False)
+    hashed_password: str
+
+class Medication(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    name: str
+    dose: Optional[str] = None
+    times: str  # comma-separated times like "08:00,20:00"
+    start_date: date = Field(default_factory=date.today)
+    end_date: Optional[date] = None
+    quantity: Optional[int] = None
+
+
+class Taken(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    medication_id: int = Field(foreign_key="medication.id")
+    scheduled_for: datetime
+    taken_at: Optional[datetime] = None
+
+# Vitals model
+class Vitals(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id")
+    bp: Optional[str] = None
+    hr: Optional[str] = None
+    temp: Optional[str] = None
+    record_time: datetime = Field(default_factory=datetime.now)
+
+# --- Pydantic schemas ---
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    email: str
+
+
+class MedCreate(BaseModel):
+    name: str
+    dose: Optional[str] = None
+    times: List[str]  # ["08:00", "20:00"]
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    quantity: Optional[int] = None
+
+# Vitals schemas
+class VitalsCreate(BaseModel):
+    bp: Optional[str] = None
+    hr: Optional[str] = None
+    temp: Optional[str] = None
+    record_time: Optional[datetime] = None
+
+class VitalsRead(BaseModel):
+    id: int
+    bp: Optional[str] = None
+    hr: Optional[str] = None
+    temp: Optional[str] = None
+    record_time: datetime
+
+# --- Utilities ---
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
+
+def get_password_hash(password: str) -> str:
+    # Ensure password is a string and not bytes
+    if not isinstance(password, str):
+        password = str(password)
+    print("Password for hashing:", password, type(password))  # Debug line
+    return pwd_context.hash(password[:72])
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# --- FastAPI app ---
+
+app = FastAPI()
+
+
+# Vitals endpoints (must be after get_user_from_token and get_session)
+
+# Dependency
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+# Auth helpers
+def authenticate_user(session: Session, email: str, password: str):
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+@app.post("/register", response_model=Token)
+def register(user_in: UserCreate, session: Session = Depends(get_session)):
+    existing = session.exec(select(User).where(User.email == user_in.email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User already exists")
+    user = User(email=user_in.email, hashed_password=get_password_hash(user_in.password))
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer", "email": user.email}
+
+@app.post("/token", response_model=Token)
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), session: Session = Depends(get_session)):
+    user = authenticate_user(session, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    token = create_access_token({"sub": str(user.id)})
+    return {"access_token": token, "token_type": "bearer", "email": user.email}
+
+def get_user_from_token(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
+    credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = session.get(User, int(user_id))
+    if user is None:
+        raise credentials_exception
+    return user
+
+# Vitals endpoints
+@app.post("/vitals", response_model=VitalsRead)
+def add_vitals(vital: VitalsCreate, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    v = Vitals(
+        user_id=user.id,
+        bp=vital.bp,
+        hr=vital.hr,
+        temp=vital.temp,
+        record_time=vital.record_time or datetime.now()
+    )
+    session.add(v)
+    session.commit()
+    session.refresh(v)
+    return VitalsRead(id=v.id, bp=v.bp, hr=v.hr, temp=v.temp, record_time=v.record_time)
+
+@app.get("/vitals", response_model=List[VitalsRead])
+def list_vitals(user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    vitals = session.exec(select(Vitals).where(Vitals.user_id == user.id)).all()
+    return [VitalsRead(id=v.id, bp=v.bp, hr=v.hr, temp=v.temp, record_time=v.record_time) for v in vitals]
+    credentials_exception = HTTPException(status_code=401, detail="Could not validate credentials")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = session.get(User, int(user_id))
+    if user is None:
+        raise credentials_exception
+    return user
+
+
+@app.post("/meds")
+def create_med(med: MedCreate, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    times_joined = ",".join(med.times)
+    start = med.start_date if med.start_date else date.today()
+    new = Medication(user_id=user.id, name=med.name, dose=med.dose, times=times_joined, start_date=start, end_date=med.end_date, quantity=med.quantity)
+    session.add(new)
+    session.commit()
+    session.refresh(new)
+    return {"id": new.id, "name": new.name}
+
+@app.get("/meds")
+def list_meds(user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
+    result = []
+    for m in meds:
+        result.append({"id": m.id, "name": m.name, "dose": m.dose, "times": m.times.split(","), "start_date": m.start_date, "end_date": m.end_date, "quantity": m.quantity})
+    return result
+
+def parse_time_str(t: str) -> time:
+    parts = [int(x) for x in t.split(":" )]
+    return time(parts[0], parts[1])
+
+@app.get("/reminders")
+def get_reminders(minutes_before: int = 15, minutes_after: int = 5, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    now = datetime.now()
+    start_window = now - timedelta(minutes=minutes_before)
+    end_window = now + timedelta(minutes=minutes_after)
+    meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
+    reminders = []
+    for m in meds:
+        # skip if not active
+        if m.start_date and date.today() < m.start_date:
+            continue
+        if m.end_date and date.today() > m.end_date:
+            continue
+        times = [t for t in m.times.split(",") if t.strip()]
+        for t in times:
+            try:
+                scheduled_time = datetime.combine(date.today(), parse_time_str(t.strip()))
+            except Exception:
+                continue
+            if scheduled_time >= start_window and scheduled_time <= end_window:
+                # check if taken
+                taken = session.exec(select(Taken).where(Taken.medication_id == m.id, Taken.scheduled_for == scheduled_time)).first()
+                if not taken:
+                    reminders.append({"med_id": m.id, "name": m.name, "dose": m.dose, "scheduled_for": scheduled_time.isoformat()})
+    return reminders
+
+@app.post("/meds/{med_id}/take")
+def mark_taken(med_id: int, scheduled_for: Optional[datetime] = None, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    med = session.get(Medication, med_id)
+    if not med or med.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    if scheduled_for is None:
+        scheduled_for = datetime.now()
+    taken = Taken(medication_id=med_id, scheduled_for=scheduled_for, taken_at=datetime.now())
+    session.add(taken)
+    session.commit()
+    session.refresh(taken)
+    return {"status": "ok", "taken_id": taken.id}
+
+
+
+
+@app.get("/me")
+def get_me(user: User = Depends(get_user_from_token)):
+    return {"email": user.email}

@@ -330,6 +330,27 @@ def unmark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), u
     session.commit()
     return {"status": "unmarked"}
 
+@app.get("/taken")
+def list_taken(date_str: Optional[str] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    q = select(Taken, Medication).where(Taken.medication_id == Medication.id, Medication.user_id == user.id)
+    if date_str:
+        try:
+            d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid date format")
+        start = datetime.combine(d, time.min)
+        end = datetime.combine(d, time.max)
+        q = q.where(Taken.scheduled_for >= start, Taken.scheduled_for <= end)
+    results = session.exec(q).all()
+    return [
+        {
+            "med_id": med.id,
+            "scheduled_for": taken.scheduled_for.isoformat(),
+            "taken_at": taken.taken_at.isoformat() if taken.taken_at else None
+        }
+        for taken, med in results
+    ]
+
 @app.get("/me")
 def get_me(user: User = Depends(get_user_from_token)):
     return {"email": user.email}

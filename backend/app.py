@@ -284,21 +284,51 @@ def get_reminders(minutes_before: int = 15, minutes_after: int = 5, user: User =
                     reminders.append({"med_id": m.id, "name": m.name, "dose": m.dose, "scheduled_for": scheduled_time.isoformat()})
     return reminders
 
+# @app.post("/meds/{med_id}/take")
+# def mark_taken(med_id: int, scheduled_for: Optional[datetime] = None, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+#     med = session.get(Medication, med_id)
+#     if not med or med.user_id != user.id:
+#         raise HTTPException(status_code=404, detail="Medication not found")
+#     if scheduled_for is None:
+#         scheduled_for = datetime.now()
+#     taken = Taken(medication_id=med_id, scheduled_for=scheduled_for, taken_at=datetime.now())
+#     session.add(taken)
+#     session.commit()
+#     session.refresh(taken)
+#     return {"status": "ok", "taken_id": taken.id}
+
+# Mark as taken
 @app.post("/meds/{med_id}/take")
-def mark_taken(med_id: int, scheduled_for: Optional[datetime] = None, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+def mark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     med = session.get(Medication, med_id)
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
     if scheduled_for is None:
         scheduled_for = datetime.now()
+    # Check if already exists
+    existing = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
+    if existing:
+        return {"status": "already_marked", "taken_id": existing.id}
     taken = Taken(medication_id=med_id, scheduled_for=scheduled_for, taken_at=datetime.now())
     session.add(taken)
     session.commit()
     session.refresh(taken)
     return {"status": "ok", "taken_id": taken.id}
 
-
-
+# Unmark as taken
+@app.delete("/meds/{med_id}/take")
+def unmark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+    med = session.get(Medication, med_id)
+    if not med or med.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    if scheduled_for is None:
+        raise HTTPException(status_code=400, detail="scheduled_for required")
+    taken = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
+    if not taken:
+        raise HTTPException(status_code=404, detail="Taken record not found")
+    session.delete(taken)
+    session.commit()
+    return {"status": "unmarked"}
 
 @app.get("/me")
 def get_me(user: User = Depends(get_user_from_token)):

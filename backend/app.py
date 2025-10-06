@@ -329,7 +329,6 @@ def unmark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), u
     session.delete(taken)
     session.commit()
     return {"status": "unmarked"}
-
 @app.get("/taken")
 def list_taken(date_str: Optional[str] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     q = select(Taken, Medication).where(Taken.medication_id == Medication.id, Medication.user_id == user.id)

@@ -40,7 +40,7 @@ from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import uvicorn
-
+from fastapi import Query
 # --- CONFIG ---
 #DATABASE_URL = "sqlite:///./meds.db"
 import os

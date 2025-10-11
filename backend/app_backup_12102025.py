@@ -57,84 +57,27 @@ engine = create_engine(DATABASE_URL, echo=False)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- MODELS ---
-
-from datetime import datetime, date, time
-from typing import Optional, List
-from sqlmodel import SQLModel, Field, Relationship
-
-
-# ----------------------------
-# USER
-# ----------------------------
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    email: str = Field(index=True, nullable=False, unique=True)
+    email: str = Field(index=True, nullable=False)
     hashed_password: str
 
-    medications: List["Medication"] = Relationship(back_populates="user")
-
-
-# ----------------------------
-# MEDICATION
-# ----------------------------
 class Medication(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
     name: str
     dose: Optional[str] = None
+    times: str  # comma-separated times like "08:00,20:00"
     start_date: date = Field(default_factory=date.today)
     end_date: Optional[date] = None
     quantity: Optional[int] = None
 
-    # Relationships
-    user: Optional[User] = Relationship(back_populates="medications")
-    times: List["MedicationTime"] = Relationship(back_populates="medication", sa_relationship_kwargs={"cascade": "all, delete"})
-    taken_records: List["Taken"] = Relationship(back_populates="medication", sa_relationship_kwargs={"cascade": "all, delete"})
 
-
-# ----------------------------
-# MEDICATION TIME (Fixed times per day, e.g. 08:00, 20:00)
-# ----------------------------
-class MedicationTime(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    medication_id: int = Field(foreign_key="medication.id")
-    time: time  # not string!
-
-    medication: Optional[Medication] = Relationship(back_populates="times")
-
-
-# ----------------------------
-# TAKEN (Each actual intake)
-# ----------------------------
 class Taken(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     medication_id: int = Field(foreign_key="medication.id")
-    scheduled_for: datetime  # e.g. 2025-10-12T08:00:00
+    scheduled_for: datetime
     taken_at: Optional[datetime] = None
-
-    medication: Optional[Medication] = Relationship(back_populates="taken_records")
-
-# class User(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     email: str = Field(index=True, nullable=False)
-#     hashed_password: str
-
-# class Medication(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     user_id: int = Field(foreign_key="user.id")
-#     name: str
-#     dose: Optional[str] = None
-#     times: str  # comma-separated times like "08:00,20:00"
-#     start_date: date = Field(default_factory=date.today)
-#     end_date: Optional[date] = None
-#     quantity: Optional[int] = None
-
-
-# class Taken(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     medication_id: int = Field(foreign_key="medication.id")
-#     scheduled_for: datetime
-#     taken_at: Optional[datetime] = None
 
 # Vitals model
 class Vitals(SQLModel, table=True):
@@ -355,99 +298,37 @@ def get_reminders(minutes_before: int = 15, minutes_after: int = 5, user: User =
 #     return {"status": "ok", "taken_id": taken.id}
 
 # Mark as taken
-# --- Mark as taken ---
 @app.post("/meds/{med_id}/take")
-def mark_taken(
-    med_id: int,
-    scheduled_for: datetime = Query(...),
-    user: User = Depends(get_user_from_token),
-    session: Session = Depends(get_session),
-):
+def mark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     med = session.get(Medication, med_id)
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
-
-    # Normalize to seconds
-    scheduled_for = scheduled_for.replace(microsecond=0)
-
-    # Check existing
-    existing = session.exec(
-        select(Taken).where(
-            Taken.medication_id == med_id,
-            Taken.scheduled_for == scheduled_for,
-        )
-    ).first()
+    if scheduled_for is None:
+        scheduled_for = datetime.now()
+    # Check if already exists
+    existing = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
     if existing:
         return {"status": "already_marked", "taken_id": existing.id}
-
-    taken = Taken(
-        medication_id=med_id,
-        scheduled_for=scheduled_for,
-        taken_at=datetime.now(),
-    )
+    taken = Taken(medication_id=med_id, scheduled_for=scheduled_for, taken_at=datetime.now())
     session.add(taken)
     session.commit()
     session.refresh(taken)
     return {"status": "ok", "taken_id": taken.id}
 
-
-# --- Unmark as taken ---
+# Unmark as taken
 @app.delete("/meds/{med_id}/take")
-def unmark_taken(
-    med_id: int,
-    scheduled_for: datetime = Query(...),
-    user: User = Depends(get_user_from_token),
-    session: Session = Depends(get_session),
-):
+def unmark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     med = session.get(Medication, med_id)
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
-
-    scheduled_for = scheduled_for.replace(microsecond=0)
-
-    taken = session.exec(
-        select(Taken).where(
-            Taken.medication_id == med_id,
-            Taken.scheduled_for == scheduled_for,
-        )
-    ).first()
+    if scheduled_for is None:
+        raise HTTPException(status_code=400, detail="scheduled_for required")
+    taken = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
     if not taken:
         raise HTTPException(status_code=404, detail="Taken record not found")
-
     session.delete(taken)
     session.commit()
     return {"status": "unmarked"}
-# @app.post("/meds/{med_id}/take")
-# def mark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
-#     med = session.get(Medication, med_id)
-#     if not med or med.user_id != user.id:
-#         raise HTTPException(status_code=404, detail="Medication not found")
-#     if scheduled_for is None:
-#         scheduled_for = datetime.now()
-#     # Check if already exists
-#     existing = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
-#     if existing:
-#         return {"status": "already_marked", "taken_id": existing.id}
-#     taken = Taken(medication_id=med_id, scheduled_for=scheduled_for, taken_at=datetime.now())
-#     session.add(taken)
-#     session.commit()
-#     session.refresh(taken)
-#     return {"status": "ok", "taken_id": taken.id}
-
-# # Unmark as taken
-# @app.delete("/meds/{med_id}/take")
-# def unmark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
-#     med = session.get(Medication, med_id)
-#     if not med or med.user_id != user.id:
-#         raise HTTPException(status_code=404, detail="Medication not found")
-#     if scheduled_for is None:
-#         raise HTTPException(status_code=400, detail="scheduled_for required")
-#     taken = session.exec(select(Taken).where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)).first()
-#     if not taken:
-#         raise HTTPException(status_code=404, detail="Taken record not found")
-#     session.delete(taken)
-#     session.commit()
-#     return {"status": "unmarked"}
 @app.get("/taken")
 def list_taken(date_str: Optional[str] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     q = select(Taken, Medication).where(Taken.medication_id == Medication.id, Medication.user_id == user.id)

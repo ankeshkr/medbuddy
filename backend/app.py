@@ -381,34 +381,52 @@ def get_reminders(
 
 # Mark as taken
 # --- Mark as taken ---
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlmodel import Session, select
+from datetime import datetime
+from typing import Optional
+
+# ----------------------------
+# Request Models
+# ----------------------------
+class TakeRequest(BaseModel):
+    scheduled_for: Optional[datetime] = None
+
+
+# ----------------------------
+# Mark as Taken
+# ----------------------------
 @app.post("/meds/{med_id}/take")
 def mark_taken(
     med_id: int,
-    scheduled_for: datetime = Query(...),
+    req: TakeRequest,
     user: User = Depends(get_user_from_token),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_session)
 ):
     med = session.get(Medication, med_id)
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
 
-    # Normalize to seconds
+    # If scheduled_for is not provided, use current datetime
+    scheduled_for = req.scheduled_for or datetime.now()
+
+    # Round microseconds to avoid matching issues
     scheduled_for = scheduled_for.replace(microsecond=0)
 
-    # Check existing
+    # Check if already marked
     existing = session.exec(
-        select(Taken).where(
-            Taken.medication_id == med_id,
-            Taken.scheduled_for == scheduled_for,
-        )
+        select(Taken)
+        .where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)
     ).first()
+
     if existing:
         return {"status": "already_marked", "taken_id": existing.id}
 
     taken = Taken(
         medication_id=med_id,
         scheduled_for=scheduled_for,
-        taken_at=datetime.now(),
+        taken_at=datetime.now()
     )
     session.add(taken)
     session.commit()
@@ -416,32 +434,37 @@ def mark_taken(
     return {"status": "ok", "taken_id": taken.id}
 
 
-# --- Unmark as taken ---
+# ----------------------------
+# Unmark as Taken
+# ----------------------------
 @app.delete("/meds/{med_id}/take")
 def unmark_taken(
     med_id: int,
-    scheduled_for: datetime = Query(...),
+    req: TakeRequest,
     user: User = Depends(get_user_from_token),
-    session: Session = Depends(get_session),
+    session: Session = Depends(get_session)
 ):
     med = session.get(Medication, med_id)
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
 
-    scheduled_for = scheduled_for.replace(microsecond=0)
+    if not req.scheduled_for:
+        raise HTTPException(status_code=400, detail="scheduled_for is required")
+
+    scheduled_for = req.scheduled_for.replace(microsecond=0)
 
     taken = session.exec(
-        select(Taken).where(
-            Taken.medication_id == med_id,
-            Taken.scheduled_for == scheduled_for,
-        )
+        select(Taken)
+        .where(Taken.medication_id == med_id, Taken.scheduled_for == scheduled_for)
     ).first()
+
     if not taken:
         raise HTTPException(status_code=404, detail="Taken record not found")
 
     session.delete(taken)
     session.commit()
     return {"status": "unmarked"}
+
 # @app.post("/meds/{med_id}/take")
 # def mark_taken(med_id: int, scheduled_for: Optional[datetime] = Query(None), user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
 #     med = session.get(Medication, med_id)

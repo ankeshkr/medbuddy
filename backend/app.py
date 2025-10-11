@@ -297,7 +297,9 @@ def list_vitals(user: User = Depends(get_user_from_token), session: Session = De
 def create_med(med: MedCreate, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     times_joined = ",".join(med.times)
     start = med.start_date if med.start_date else date.today()
-    new = Medication(user_id=user.id, name=med.name, dose=med.dose, times=times_joined, start_date=start, end_date=med.end_date, quantity=med.quantity)
+    # Convert list of time strings (e.g. ["08:00", "20:00"]) to MedicationTime objects
+    med_time_objects = [MedicationTime(time=datetime.strptime(t, "%H:%M").time()) for t in med.times]
+    new = Medication(user_id=user.id, name=med.name, dose=med.dose, times=med_time_objects, start_date=start, end_date=med.end_date, quantity=med.quantity)
     session.add(new)
     session.commit()
     session.refresh(new)

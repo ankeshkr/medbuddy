@@ -310,37 +310,60 @@ def list_meds(user: User = Depends(get_user_from_token), session: Session = Depe
     meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
     result = []
     for m in meds:
-        result.append({"id": m.id, "name": m.name, "dose": m.dose, "times": m.times.split(","), "start_date": m.start_date, "end_date": m.end_date, "quantity": m.quantity})
+        # Convert MedicationTime objects to HH:MM strings
+        times_str = [t.time.strftime("%H:%M") for t in m.times]
+        result.append({
+            "id": m.id,
+            "name": m.name,
+            "dose": m.dose,
+            "times": times_str,
+            "start_date": m.start_date,
+            "end_date": m.end_date,
+            "quantity": m.quantity
+        })
     return result
 
-def parse_time_str(t: str) -> time:
-    parts = [int(x) for x in t.split(":" )]
-    return time(parts[0], parts[1])
-
+# ----------------------------
+# GET REMINDERS
+# ----------------------------
 @app.get("/reminders")
-def get_reminders(minutes_before: int = 15, minutes_after: int = 5, user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+def get_reminders(
+    minutes_before: int = 15,
+    minutes_after: int = 5,
+    user: User = Depends(get_user_from_token),
+    session: Session = Depends(get_session)
+):
     now = datetime.now()
     start_window = now - timedelta(minutes=minutes_before)
     end_window = now + timedelta(minutes=minutes_after)
+
     meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
     reminders = []
+
     for m in meds:
-        # skip if not active
+        # Skip if medication is not active
         if m.start_date and date.today() < m.start_date:
             continue
         if m.end_date and date.today() > m.end_date:
             continue
-        times = [t for t in m.times.split(",") if t.strip()]
-        for t in times:
-            try:
-                scheduled_time = datetime.combine(date.today(), parse_time_str(t.strip()))
-            except Exception:
-                continue
-            if scheduled_time >= start_window and scheduled_time <= end_window:
-                # check if taken
-                taken = session.exec(select(Taken).where(Taken.medication_id == m.id, Taken.scheduled_for == scheduled_time)).first()
+
+        for t in m.times:
+            scheduled_time = datetime.combine(date.today(), t.time)
+            # Check if scheduled_time is within the reminder window
+            if start_window <= scheduled_time <= end_window:
+                # Check if already taken
+                taken = session.exec(
+                    select(Taken)
+                    .where(Taken.medication_id == m.id, Taken.scheduled_for == scheduled_time)
+                ).first()
                 if not taken:
-                    reminders.append({"med_id": m.id, "name": m.name, "dose": m.dose, "scheduled_for": scheduled_time.isoformat()})
+                    reminders.append({
+                        "med_id": m.id,
+                        "name": m.name,
+                        "dose": m.dose,
+                        "scheduled_for": scheduled_time.isoformat()
+                    })
+
     return reminders
 
 # @app.post("/meds/{med_id}/take")

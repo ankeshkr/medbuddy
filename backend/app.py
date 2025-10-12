@@ -328,11 +328,14 @@ def get_reminders(
             continue
         if m.end_date and date.today() > m.end_date:
             continue
-
+        print("Processing medication:", m.name)  # Debug line
+        print("before for loop")
         for t in m.times:
           #  scheduled_time = datetime.combine(date.today(), t.time)
             #Make scheduled_time timezone-aware
             scheduled_time = datetime.combine(date.today(), t.time).replace(tzinfo=user_tz)
+            print("Scheduled time:", scheduled_time, type(scheduled_time))  # Debug line
+            print(start_window, end_window)  # Debug line
             # Check if scheduled_time is within the reminder window
             if start_window <= scheduled_time <= end_window:
                 # Check if already taken

@@ -41,6 +41,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import uvicorn
 from fastapi import Query
+from zoneinfo import ZoneInfo
 # --- CONFIG ---
 #DATABASE_URL = "sqlite:///./meds.db"
 import os
@@ -70,16 +71,16 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     email: str = Field(index=True, nullable=False, unique=True)
     hashed_password: str
+    timezone: str = Field(default="Asia/Kolkata")  # ✅ NEW FIELD
 
     medications: List["Medication"] = Relationship(back_populates="user")
-
 
 # ----------------------------
 # MEDICATION
 # ----------------------------
 class Medication(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
+    user_id: int = Field(foreign_key="user.id")sqli
     name: str
     dose: Optional[str] = None
     start_date: date = Field(default_factory=date.today)
@@ -113,28 +114,6 @@ class Taken(SQLModel, table=True):
     taken_at: Optional[datetime] = None
 
     medication: Optional[Medication] = Relationship(back_populates="taken_records")
-
-# class User(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     email: str = Field(index=True, nullable=False)
-#     hashed_password: str
-
-# class Medication(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     user_id: int = Field(foreign_key="user.id")
-#     name: str
-#     dose: Optional[str] = None
-#     times: str  # comma-separated times like "08:00,20:00"
-#     start_date: date = Field(default_factory=date.today)
-#     end_date: Optional[date] = None
-#     quantity: Optional[int] = None
-
-
-# class Taken(SQLModel, table=True):
-#     id: Optional[int] = Field(default=None, primary_key=True)
-#     medication_id: int = Field(foreign_key="medication.id")
-#     scheduled_for: datetime
-#     taken_at: Optional[datetime] = None
 
 # Vitals model
 class Vitals(SQLModel, table=True):
@@ -231,7 +210,7 @@ def register(user_in: UserCreate, session: Session = Depends(get_session)):
     existing = session.exec(select(User).where(User.email == user_in.email)).first()
     if existing:
         raise HTTPException(status_code=400, detail="User already exists")
-    user = User(email=user_in.email, hashed_password=get_password_hash(user_in.password))
+    user = User(email=user_in.email, hashed_password=get_password_hash(user_in.password),timezone = user_in.timezone or "Asia/Kolkata")
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -334,6 +313,8 @@ def get_reminders(
     user: User = Depends(get_user_from_token),
     session: Session = Depends(get_session)
 ):
+    user_tz = ZoneInfo(user.timezone or "Asia/Kolkata")
+    now = datetime.now(user_tz)
     now = datetime.now()
     start_window = now - timedelta(minutes=minutes_before)
     end_window = now + timedelta(minutes=minutes_after)

@@ -333,7 +333,7 @@ def get_reminders(
         for t in m.times:
           #  scheduled_time = datetime.combine(date.today(), t.time)
             #Make scheduled_time timezone-aware
-            scheduled_time = datetime.combine(date.today(), t.time).replace(tzinfo=user_tz)
+            scheduled_time = datetime.combine(now.date(), t.time).replace(tzinfo=user_tz)
             print("Scheduled time:", scheduled_time, type(scheduled_time))  # Debug line
             print(start_window, end_window)  # Debug line
             # Check if scheduled_time is within the reminder window

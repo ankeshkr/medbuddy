@@ -80,7 +80,7 @@ class User(SQLModel, table=True):
 # ----------------------------
 class Medication(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")sqli
+    user_id: int = Field(foreign_key="user.id")
     name: str
     dose: Optional[str] = None
     start_date: date = Field(default_factory=date.today)

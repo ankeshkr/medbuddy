@@ -528,3 +528,23 @@ def debug_time():
         "server_datetime": datetime.now(),  # local server time
         "utc_datetime": datetime.utcnow()   # UTC time
     }
+
+# ----------------------------
+# DELETE MEDICATION
+# ----------------------------
+@app.delete("/meds/{med_id}")
+def delete_medication(
+    med_id: int,
+    user: User = Depends(get_user_from_token),
+    session: Session = Depends(get_session)
+):
+    # Fetch the medication for this user
+    med = session.get(Medication, med_id)
+    if not med or med.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Medication not found")
+
+    # Delete the medication (cascades will delete related times + taken records)
+    session.delete(med)
+    session.commit()
+
+    return {"status": "deleted", "med_id": med_id}

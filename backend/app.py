@@ -315,7 +315,6 @@ def get_reminders(
 ):
     user_tz = ZoneInfo(user.timezone or "Asia/Kolkata")
     now = datetime.now(user_tz)
-    now = datetime.now()
     start_window = now - timedelta(minutes=minutes_before)
     end_window = now + timedelta(minutes=minutes_after)
 

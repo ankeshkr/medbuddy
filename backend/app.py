@@ -440,7 +440,8 @@ def mark_taken(
 @app.delete("/meds/{med_id}/take")
 def unmark_taken(
     med_id: int,
-    req: TakeRequest,
+  #  req: TakeRequest,
+    scheduled_for: datetime = Query(...),  # <--- accept from query instead of body
     user: User = Depends(get_user_from_token),
     session: Session = Depends(get_session)
 ):
@@ -448,10 +449,10 @@ def unmark_taken(
     if not med or med.user_id != user.id:
         raise HTTPException(status_code=404, detail="Medication not found")
 
-    if not req.scheduled_for:
-        raise HTTPException(status_code=400, detail="scheduled_for is required")
+    # if not req.scheduled_for:
+    #     raise HTTPException(status_code=400, detail="scheduled_for is required")
 
-    scheduled_for = req.scheduled_for.replace(microsecond=0)
+    scheduled_for = scheduled_for.replace(microsecond=0)
 
     taken = session.exec(
         select(Taken)

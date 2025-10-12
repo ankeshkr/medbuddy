@@ -128,6 +128,7 @@ class Vitals(SQLModel, table=True):
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
+    timezone: Optional[str] = "Asia/Kolkata"
 
 class Token(BaseModel):
     access_token: str

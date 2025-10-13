@@ -316,6 +316,9 @@ def list_meds(user: User = Depends(get_user_from_token), session: Session = Depe
     meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
     result = []
     for m in meds:
+        # Count how many times this medication has been taken
+        taken_count = session.exec(
+            select(Taken).where(Taken.medication_id == m.id)).count()
         # Convert MedicationTime objects to HH:MM strings
         times_str = [t.time.strftime("%H:%M") for t in m.times]
         result.append({
@@ -325,7 +328,8 @@ def list_meds(user: User = Depends(get_user_from_token), session: Session = Depe
             "times": times_str,
             "start_date": m.start_date,
             "end_date": m.end_date,
-            "quantity": m.quantity
+            "quantity": m.quantity,
+            "quantity_left": (m.quantity - taken_count) if m.quantity is not None else None
         })
     return result
 

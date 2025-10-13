@@ -220,6 +220,13 @@ from sqlmodel import SQLModel
 def on_startup():
     SQLModel.metadata.create_all(engine)
 
+@app.get("/debug/db")
+def debug_db():
+    from backend.app import engine
+    with Session(engine) as session:
+        result = session.exec("SELECT version();").first()
+        return {"database_version": result}
+
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 

@@ -47,8 +47,19 @@ from zoneinfo import ZoneInfo
 import os
 
 # get path to repo root (parent of backend/) for render
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # backend/
-DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'meds.db')}"
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))  # backend/
+# DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'meds.db')}"
+
+# for using postgresql in onrender
+import os
+from sqlmodel import create_engine
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
+
+# Only pass SQLite-specific args if SQLite is used
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DATABASE_URL)
 
 SECRET_KEY = "change-me-in-production"
 ALGORITHM = "HS256"

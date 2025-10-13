@@ -42,6 +42,7 @@ from jose import JWTError, jwt
 import uvicorn
 from fastapi import Query
 from zoneinfo import ZoneInfo
+from sqlalchemy import text 
 # --- CONFIG ---
 #DATABASE_URL = "sqlite:///./meds.db"
 import os
@@ -224,7 +225,7 @@ def on_startup():
 def debug_db():
     from backend.app import engine
     with Session(engine) as session:
-        result = session.exec("SELECT version();").first()
+        result = session.exec(text("SELECT version();")).first()
         return {"database_version": result}
 
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer

@@ -318,8 +318,8 @@ def list_meds(user: User = Depends(get_user_from_token), session: Session = Depe
     for m in meds:
         # Count how many times this medication has been taken
         stmt = select(func.count()).where(Taken.medication_id == m.id)
-        result = session.execute(stmt)
-        taken_count = result.scalar()  # scalar() gives the integer
+        taken_count_result = session.execute(stmt)
+        taken_count = taken_count_result.scalar()  # scalar() gives the integer
         # Convert MedicationTime objects to HH:MM strings
         times_str = [t.time.strftime("%H:%M") for t in m.times]
         result.append({

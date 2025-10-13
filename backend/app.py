@@ -214,6 +214,12 @@ def authenticate_user(session: Session, email: str, password: str):
         return False
     return user
 
+from sqlmodel import SQLModel
+
+@app.on_event("startup")
+def on_startup():
+    SQLModel.metadata.create_all(engine)
+
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 

@@ -42,7 +42,7 @@ from jose import JWTError, jwt
 import uvicorn
 from fastapi import Query
 from zoneinfo import ZoneInfo
-from sqlalchemy import text 
+from sqlalchemy import text, select, func
 # --- CONFIG ---
 #DATABASE_URL = "sqlite:///./meds.db"
 import os
@@ -319,6 +319,9 @@ def list_meds(user: User = Depends(get_user_from_token), session: Session = Depe
         # Count how many times this medication has been taken
         taken_count = session.exec(
             select(Taken).where(Taken.medication_id == m.id)).count()
+        stmt = select(func.count()).where(Taken.medication_id == m.id)
+        result = await session.execute(stmt)
+        taken_count = result.scalar()  # scalar() gives the integer
         # Convert MedicationTime objects to HH:MM strings
         times_str = [t.time.strftime("%H:%M") for t in m.times]
         result.append({

@@ -371,7 +371,7 @@ def get_reminders(
                 # Check if already taken
                 taken = session.exec(
                     select(Taken)
-                    .where(Taken.medication_id == m.id, Taken.scheduled_for == scheduled_time)
+                    .where(Taken.medication_id == m.id )#, Taken.scheduled_for == scheduled_time)
                 ).first()
                 print(taken)
                 if not taken:

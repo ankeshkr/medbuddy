@@ -375,6 +375,7 @@ def get_reminders(
                     select(Taken)
                     .where(Taken.medication_id == m.id, Taken.scheduled_for == scheduled_time)
                 ).first()
+                print(taken)
                 if not taken:
                     reminders.append({
                         "med_id": m.id,

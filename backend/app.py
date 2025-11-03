@@ -312,16 +312,14 @@ def create_med(med: MedCreate, user: User = Depends(get_user_from_token), sessio
     return {"id": new.id, "name": new.name}
 
 @app.get("/meds")
-async def list_meds(user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
+def list_meds(user: User = Depends(get_user_from_token), session: Session = Depends(get_session)):
     meds = session.exec(select(Medication).where(Medication.user_id == user.id)).all()
     result = []
     for m in meds:
         # Count how many times this medication has been taken
-        taken_count = session.exec(
-            select(Taken).where(Taken.medication_id == m.id)).count()
         stmt = select(func.count()).where(Taken.medication_id == m.id)
-        result = await session.execute(stmt)
-        taken_count = result.scalar()  # scalar() gives the integer
+        taken_count_result = session.execute(stmt)
+        taken_count = taken_count_result.scalar()  # scalar() gives the integer
         # Convert MedicationTime objects to HH:MM strings
         times_str = [t.time.strftime("%H:%M") for t in m.times]
         result.append({

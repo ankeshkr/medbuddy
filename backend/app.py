@@ -541,7 +541,7 @@ def delete_medication(
 # ----------------------------
 @app.delete("/vitals/{vital_id}")
 def delete_vitals(
-    vital_id: int,
+    id: int,
     user: User = Depends(get_user_from_token),
     session: Session = Depends(get_session)
 ):
@@ -554,4 +554,4 @@ def delete_vitals(
     session.delete(vital)
     session.commit()
 
-    return {"status": "deleted", "vital_id": id}
+    return {"status": "deleted", "id": id}

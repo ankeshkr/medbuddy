@@ -535,3 +535,23 @@ def delete_medication(
     session.commit()
 
     return {"status": "deleted", "med_id": med_id}
+
+# ----------------------------
+# DELETE VITALS
+# ----------------------------
+@app.delete("/vitals/{vital_id}")
+def delete_vitals(
+    vital_id: int,
+    user: User = Depends(get_user_from_token),
+    session: Session = Depends(get_session)
+):
+    # Fetch the vital record for this user
+    vital = session.get(Vitals, id)
+    if not vital or vital.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Vital record not found")
+
+    # Delete the vital record
+    session.delete(vital)
+    session.commit()
+
+    return {"status": "deleted", "vital_id": id}
